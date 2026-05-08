@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ###############################################################################
-# PHASE 3 & 4: Map Reads to Clusters and Generate Statistics
+# STAGE 3: Map Reads to Clusters and Generate Statistics
 ###############################################################################
 # For each sample: extracts RNA reads, maps to cluster database,
 # and calculates per-read similarity scores and mapping statistics
@@ -24,7 +24,6 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="${SLURM_SUBMIT_DIR:-$(dirname "$SCRIPT_DIR")}" 
-ASSEMBLY_BASE="${PROJECT_ROOT}/../myloasm_assemblies"
 TAR_FILE="/lisc/data/work/dome/pollak/liors/data/challenges/JMF-2508-04/JMF-2508-04_reads.tar.gz"
 SHARED_DB="${PROJECT_ROOT}/output/mmseqs_clustering/shared_db"
 MAPPING_RESULTS="${PROJECT_ROOT}/output/mapping_results"
@@ -33,38 +32,35 @@ TMP_DIR="${PROJECT_ROOT}/output/.tmp_${SAMPLE_IDX}"
 mkdir -p "${MAPPING_RESULTS}" "${TMP_DIR}"
 
 module load MMseqs2/18-8cc5c-gompi-2025b
-module load Python
 module load seqtk/1.5-GCC-14.3.0
 
-log "Starting Phase 3+4: Map Reads and Generate Statistics (Sample ${SAMPLE_IDX})"
+log "Starting Stage 3: Map Reads and Generate Statistics (Sample ${SAMPLE_IDX})"
 
 ###############################################################################
 # Get sample information
 ###############################################################################
 
-mapfile -t DNA_DIRS < <(
-    find "${ASSEMBLY_BASE}" -maxdepth 1 -mindepth 1 -type d -name "JMF-2508-04-*B-ONT" | sort
+mapfile -t RNA_SAMPLES < <(
+    tar -tzf "${TAR_FILE}" \
+        | grep 'QC.interleave.fastq.gz' \
+        | sed 's#.*/##' \
+        | sed 's/\.QC.interleave.fastq.gz$//' \
+        | sort -u
 )
 
-DNA_DIR="${DNA_DIRS[$SAMPLE_IDX]}"
-DNA_SAMPLE="$(basename "${DNA_DIR}")"
-NUM="${DNA_SAMPLE#JMF-2508-04-}"
-NUM="${NUM%B-ONT}"
-RNA_SAMPLE="JMF-2508-04-${NUM}"
+RNA_SAMPLE="${RNA_SAMPLES[$SAMPLE_IDX]}"
 
 INNER="JMF-2508-04_reads/${RNA_SAMPLE}.QC.interleave.fastq.gz"
 RNA_FASTA="${TMP_DIR}/${RNA_SAMPLE}.fa"
 RNA_DB="${TMP_DIR}/${RNA_SAMPLE}_db"
 SEARCH_RESULTS="${TMP_DIR}/${RNA_SAMPLE}_search_results"
-STATS_OUTPUT="${MAPPING_RESULTS}/${RNA_SAMPLE}_mapping_stats.tsv"
-
 cleanup() {
     rm -rf "${TMP_DIR}"
 }
 trap cleanup EXIT
 
 log "RNA Sample: ${RNA_SAMPLE}"
-log "DNA Sample: ${DNA_SAMPLE}"
+log "Total RNA samples available: ${#RNA_SAMPLES[@]}"
 
 ###############################################################################
 # Extract and convert RNA reads to FASTA
@@ -115,5 +111,5 @@ log "Extracting alignment details..."
 mmseqs convertalis "${RNA_DB}" "${CLUSTER_REP_DB}" "${SEARCH_RESULTS}" "${MAPPING_RESULTS}/${RNA_SAMPLE}_alignments.tsv" \
     --format-output "query,target,pident,nident,mismatch,gapopen,evalue,bits"
 
-log "Phase 3 COMPLETE for ${RNA_SAMPLE}"
+log "Stage 3 COMPLETE for ${RNA_SAMPLE}"
 log "  Alignments saved to: ${MAPPING_RESULTS}/${RNA_SAMPLE}_alignments.tsv"

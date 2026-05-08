@@ -1,7 +1,7 @@
 #!/bin/bash
 
 ###############################################################################
-# PHASE 1: Gene Prediction from Contigs using Prodigal
+# STAGE 1: Gene Prediction from Contigs using Prodigal
 ###############################################################################
 # Predicts open reading frames (ORFs) from all contig assemblies
 # Input: assembly_primary.fa from each sample
@@ -26,11 +26,11 @@ mkdir -p "${OUTPUT_GENES}" "${PROJECT_ROOT}/logs"
 module load prodigal/2.6.3-GCCcore-14.2.0
 
 if [ -z "${TASK_ID}" ]; then
-    log "ERROR: Phase 1 must run as a SLURM array job"
+    log "ERROR: Stage 1 must run as a SLURM array job"
     exit 1
 fi
 
-log "Starting Phase 1: Gene Prediction (task ${TASK_ID})"
+log "Starting Stage 1: Gene Prediction (task ${TASK_ID})"
 
 ###############################################################################
 # Find all assemblies and run Prodigal in parallel
@@ -58,4 +58,4 @@ fi
 log "Processing ${DNA_SAMPLE}..."
 prodigal -i "${ASSEMBLY}" -a "${OUTPUT_FAA}" -p meta > /dev/null 2>&1
 log "  Completed: ${OUTPUT_FAA}"
-log "Phase 1 COMPLETE for task ${TASK_ID}"
+log "Stage 1 COMPLETE for task ${TASK_ID}"

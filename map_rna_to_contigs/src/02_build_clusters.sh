@@ -1,10 +1,10 @@
 #!/bin/bash
 
 ###############################################################################
-# PHASE 2: Build Shared MMseqs2 Cluster Database
+# STAGE 2: Build Shared MMseqs2 Cluster Database
 ###############################################################################
 # Concatenates all predicted genes and creates a shared cluster database
-# Input: .genes.faa files from Phase 1
+# Input: .genes.faa files from Stage 1
 # Output: MMseqs2 database and cluster representatives
 ###############################################################################
 
@@ -24,7 +24,7 @@ mkdir -p "${SHARED_DB}" "${TMP_DIR}"
 
 module load MMseqs2/18-8cc5c-gompi-2025b
 
-log "Starting Phase 2: Build MMseqs2 Cluster Database"
+log "Starting Stage 2: Build MMseqs2 Cluster Database"
 
 ###############################################################################
 # Concatenate all predicted genes into single FASTA file
@@ -94,4 +94,4 @@ mmseqs createindex "${CLUSTER_REP_DB}" "${TMP_DIR}"
 
 rm -rf "${TMP_DIR}"
 
-log "Phase 2 COMPLETE: Shared cluster database built"
+log "Stage 2 COMPLETE: Shared cluster database built"

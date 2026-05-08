@@ -7,10 +7,10 @@
 ###############################################################################
 # MASTER ORCHESTRATOR: MMseqs2 Gene Clustering & Transcriptomics Mapping
 ###############################################################################
-# Orchestrates all phases sequentially with SLURM dependencies:
-# Phase 1: Gene Prediction (Prodigal) - parallelized
-# Phase 2: Build Shared Cluster Database - sequential (after Phase 1)
-# Phase 3+4: Map Reads to Clusters - parallelized (after Phase 2)
+# Orchestrates all stages sequentially with SLURM dependencies:
+# Stage 1: Gene Prediction (Prodigal) - parallelized
+# Stage 2: Build Shared Cluster Database - sequential (after Stage 1)
+# Stage 3: Map Reads to Clusters - parallelized (after Stage 2)
 ###############################################################################
 
 set -euo pipefail
@@ -21,6 +21,11 @@ log() {
 
 PROJECT_ROOT="${SLURM_SUBMIT_DIR:-$(pwd)}"
 SRC_DIR="${PROJECT_ROOT}/src"
+TAR_FILE="/lisc/data/work/dome/pollak/liors/data/challenges/JMF-2508-04/JMF-2508-04_reads.tar.gz"
+
+log "Inspecting ${TAR_FILE} for Metatranscriptomic Samples"
+
+RNA_SAMPLE_COUNT=$(tar -tzf "${TAR_FILE}" | grep -c 'QC.interleave.fastq.gz')
 
 mkdir -p "${PROJECT_ROOT}/logs" \
     "${PROJECT_ROOT}/output/mmseqs_clustering/genes" \
@@ -30,68 +35,64 @@ mkdir -p "${PROJECT_ROOT}/logs" \
 log "Starting Master Orchestrator for MMseqs2 Workflow"
 
 ###############################################################################
-# PHASE 1: Gene Prediction using Prodigal (parallelized across 10 samples)
-# COMMENTED OUT - phase 1 already completed
+# STAGE 1: Gene Prediction using Prodigal (parallelized across samples)
 ###############################################################################
 
-# log "Submitting Phase 1: Gene Prediction (Prodigal)..."
-# 
-# PHASE1_JOB=$(sbatch \
-#     --job-name="phase1_prodigal" \
-#     --output="${PROJECT_ROOT}/logs/phase1_%j.out" \
-#     --error="${PROJECT_ROOT}/logs/phase1_%j.err" \
-#     --time=02:00:00 \
-#     --cpus-per-task=1 \
-#     --mem=4G \
-#     --array=0-9 \
-#     "${SRC_DIR}/01_predict_genes.sh" \
-#     | awk '{print $NF}')
-# 
-# log "Phase 1 Job ID: ${PHASE1_JOB}"
+log "Submitting Stage 1: Gene Prediction (Prodigal)..."
 
-# Phase 1 skipped in this run. Comment if running phase 1
-PHASE1_JOB="skipped"
+STAGE1_JOB=$(sbatch \
+    --job-name="stage1_prodigal" \
+    --output="${PROJECT_ROOT}/logs/stage1_%j.out" \
+    --error="${PROJECT_ROOT}/logs/stage1_%j.err" \
+    --time=02:00:00 \
+    --cpus-per-task=1 \
+    --mem=4G \
+    --array=0-9 \
+    "${SRC_DIR}/01_predict_genes.sh" \
+    | awk '{print $NF}')
+
+log "Stage 1 Job ID: ${STAGE1_JOB}"
 
 ###############################################################################
-# PHASE 2: Build MMseqs2 Cluster Database (sequential, depends on Phase 1)
+# STAGE 2: Build MMseqs2 Cluster Database (depends on Stage 1)
 ###############################################################################
 
-log "Submitting Phase 2: Build Cluster Database..."
+log "Submitting Stage 2: Build Cluster Database..."
 
 # Add for full pipeline: 
-# --dependency=afterok:${PHASE1_JOB} \
-PHASE2_JOB=$(sbatch \
-    --job-name="phase2_clustering" \
-    --output="${PROJECT_ROOT}/logs/phase2_%j.out" \
-    --error="${PROJECT_ROOT}/logs/phase2_%j.err" \
+# --dependency=afterok:${STAGE1_JOB} \
+STAGE2_JOB=$(sbatch \
+    --job-name="stage2_clustering" \
+    --output="${PROJECT_ROOT}/logs/stage2_%j.out" \
+    --error="${PROJECT_ROOT}/logs/stage2_%j.err" \
     --time=00:15:00 \
     --cpus-per-task=8 \
     --mem=16G \
     "${SRC_DIR}/02_build_clusters.sh" \
     | awk '{print $NF}')
 
-log "Phase 2 Job ID: ${PHASE2_JOB} (depends on Phase 1: ${PHASE1_JOB})"
+log "Stage 2 Job ID: ${STAGE2_JOB} (depends on Stage 1: ${STAGE1_JOB})"
 
 ###############################################################################
-# PHASE 3: Map Reads to Clusters (parallelized, depends on Phase 2)
+# STAGE 3: Map Reads to Clusters (depends on Stage 2)
 ###############################################################################
 
-log "Submitting Phase 3: Map Reads and Generate Statistics..."
+log "Submitting Stage 3: Map Reads and Generate Statistics..."
 
-# Array job for 10 samples (indices 0-9)
-PHASE3_JOB=$(sbatch \
-    --job-name="phase3_mapping" \
-    --output="${PROJECT_ROOT}/logs/phase3_%A_%a.out" \
-    --error="${PROJECT_ROOT}/logs/phase3_%A_%a.err" \
-    --dependency=afterok:${PHASE2_JOB} \
+# Array job for all metatranscriptomic samples in the tar
+STAGE3_JOB=$(sbatch \
+    --job-name="stage3_mapping" \
+    --output="${PROJECT_ROOT}/logs/stage3_%A_%a.out" \
+    --error="${PROJECT_ROOT}/logs/stage3_%A_%a.err" \
+    --dependency=afterok:${STAGE2_JOB} \
     --time=10:00:00 \
     --cpus-per-task=8 \
     --mem=32G \
-    --array=0-9 \
+    --array=0-$((RNA_SAMPLE_COUNT - 1)) \
     "${SRC_DIR}/03_map_and_stats.sh" \
     | awk '{print $NF}')
 
-log "Phase 3 Job ID: ${PHASE3_JOB} (depends on Phase 2: ${PHASE2_JOB})"
+log "Stage 3 Job ID: ${STAGE3_JOB} (depends on Stage 2: ${STAGE2_JOB})"
 
 ###############################################################################
 # Summary
@@ -100,11 +101,11 @@ log "Phase 3 Job ID: ${PHASE3_JOB} (depends on Phase 2: ${PHASE2_JOB})"
 log ""
 log "Workflow submitted successfully!"
 log "Job dependencies:"
-log "  Phase 1 (Prodigal):       ${PHASE1_JOB}"
-log "  Phase 2 (Clustering):     ${PHASE2_JOB} → depends on Phase 1"
-log "  Phase 3 (Mapping):        ${PHASE3_JOB} → depends on Phase 2"
+log "  Stage 1 (Prodigal):       ${STAGE1_JOB}"
+log "  Stage 2 (Clustering):     ${STAGE2_JOB} → depends on Stage 1"
+log "  Stage 3 (Mapping):        ${STAGE3_JOB} → depends on Stage 2"
 log ""
 log "Monitor progress with:"
 log "  squeue -u \$USER"
-log "  tail -f ${PROJECT_ROOT}/logs/phase*.out"
+log "  tail -f ${PROJECT_ROOT}/logs/stage*.out"
 log ""
