@@ -23,7 +23,7 @@ The workflow is:
 **Purpose**: Predict open reading frames from each metagenomic assembly with Prodigal.  
 **Input**: `assembly_primary.fa` from each directory in `../myloasm_assemblies/`  
 **Output**: Protein FASTA files in `../output/mmseqs_clustering/genes/` with the suffix `.genes.faa`  
-**Execution**: SLURM array job over the 10 assemblies
+**Execution**: SLURM array job over assemblies
 
 ### 2. `02_build_clusters.sh`
 
@@ -34,7 +34,7 @@ The workflow is:
 
 - concatenate all predicted protein sequences
 - create an MMseqs2 database
-- cluster sequences at 90% identity
+- cluster sequences at **90% identity**
 - extract representative sequences with `mmseqs result2repseq`
 - create an index for fast searching
 
