@@ -1,91 +1,95 @@
 # MMseqs2 Workflow Scripts
 
 ## Overview
-Four scripts orchestrate the MMseqs2 gene clustering and transcriptomics mapping workflow:
 
-### 1. `phase1_predict_genes.sh`
-**Purpose**: Predict open reading frames (ORFs) from all 10 contig assemblies using Prodigal  
-**Input**: `assembly_primary.fa` from each sample in `../myloasm_assemblies/`  
-**Output**: Protein FASTA files (`.genes.faa`) to `../output/mmseqs_clustering/genes/`  
-**Called by**: Master SLURM script
+This folder contains the scripts for a stage-based MMseqs2 workflow that links metagenomic assemblies to metatranscriptomic reads.
 
-### 2. `phase2_build_clusters.sh`
-**Purpose**: Build a shared MMseqs2 cluster database from all predicted genes  
-**Input**: All `.genes.faa` files from Phase 1  
+Current data layout:
+
+- 10 metagenomic assemblies in `../myloasm_assemblies/`
+- 28 metatranscriptomic samples in `JMF-2508-04_reads.tar.gz`
+
+The workflow is:
+
+1. Predict genes from each metagenomic assembly with Prodigal.
+2. Pool all predicted genes and cluster them with MMseqs2.
+3. Map every metatranscriptomic sample to the shared cluster representative database.
+
+## Scripts
+
+### 1. `01_predict_genes.sh`
+
+**Stage**: 1  
+**Purpose**: Predict open reading frames from each metagenomic assembly with Prodigal.  
+**Input**: `assembly_primary.fa` from each directory in `../myloasm_assemblies/`  
+**Output**: Protein FASTA files in `../output/mmseqs_clustering/genes/` with the suffix `.genes.faa`  
+**Execution**: SLURM array job over the 10 assemblies
+
+### 2. `02_build_clusters.sh`
+
+**Stage**: 2  
+**Purpose**: Build a shared MMseqs2 cluster database from all predicted genes.  
+**Input**: All `.genes.faa` files from Stage 1  
 **Process**:
-  - Concatenate all protein sequences into single FASTA
-  - Create MMseqs2 database
-  - Cluster at 90% sequence identity
-  - Extract and index cluster representatives  
-**Output**: 
-  - `all_genes.faa` — concatenated proteins
-  - `all_genes_clustered/` — MMseqs2 cluster database
-  - `cluster_rep_db/` — indexed representative sequences
-  - `cluster_rep.fa` — FASTA of representatives  
-**Output location**: `../output/mmseqs_clustering/shared_db/`  
-**Called by**: Master SLURM script (depends on Phase 1)
 
-### 3. `phase3_4_map_and_stats.sh`
-**Purpose**: Map RNA reads to cluster database and generate per-sample statistics  
+- concatenate all predicted protein sequences
+- create an MMseqs2 database
+- cluster sequences at 90% identity
+- extract representative sequences with `mmseqs result2repseq`
+- create an index for fast searching
+
+**Output**:  
+- `all_genes.faa` — concatenated protein FASTA  
+- `all_genes_db*` — MMseqs2 database files  
+- `all_genes_clustered*` — clustered database files  
+- `cluster_rep_db*` — indexed representative-sequence database  
+
+**Output location**: `../output/mmseqs_clustering/shared_db/`
+
+### 3. `03_map_and_stats.sh`
+
+**Stage**: 3  
+**Purpose**: Map each metatranscriptomic sample to the cluster representative database.  
 **Input**:
-  - RNA reads from tar file: `/lisc/data/work/dome/pollak/liors/data/challenges/JMF-2508-04/JMF-2508-04_reads.tar.gz`
-  - Cluster database from Phase 2  
-**Process**:
-  - Extract RNA reads for one sample from tar archive
-  - Convert FASTQ to FASTA
-  - Create MMseqs2 database from reads
-  - Search reads against cluster representatives
-  - Extract per-read alignment details (identity %, E-value, etc.)
-  - Parse results and calculate statistics  
-**Output**: Per-sample TSV file with mapping statistics  
-**Output location**: `../output/mapping_results/{SAMPLE}_mapping_stats.tsv`  
-**Called by**: Master SLURM script as array job (indices 0-9, depends on Phase 2)  
-**Parameters**: 
-  - `$1` — SAMPLE_IDX: array index (0-9) for which sample to process
 
-### 4. `parse_mmseqs_output.py`
-**Purpose**: Parse MMseqs2 alignment TSV and calculate mapping statistics  
-**Input**: MMseqs2 alignment file with per-read similarity scores  
-**Output**: Statistics TSV with:
-  - `sample_name` — RNA sample identifier
-  - `total_reads` — total number of reads
-  - `mapped_reads` — reads with at least one match
-  - `percent_mapped` — percentage of reads mapped (%)
-  - `avg_similarity` — average percent identity (0–1)
-  - `min_similarity` — minimum percent identity observed
-  - `max_similarity` — maximum percent identity observed
-  - `num_alignments` — total number of alignments found  
-**Called by**: `phase3_4_map_and_stats.sh`  
-**Parameters**:
-  - `--alignments FILE` — MMseqs2 alignment TSV output
-  - `--total-reads N` — total number of reads in sample
-  - `--output FILE` — output statistics file
-  - `--sample-name STR` — sample identifier for output
+- RNA reads from `/lisc/data/work/dome/pollak/liors/data/challenges/JMF-2508-04/JMF-2508-04_reads.tar.gz`
+- cluster representative database from Stage 2
+
+**Process**:
+
+- discover all RNA samples in the tar archive
+- extract the matching interleaved FASTQ for each sample
+- convert reads to FASTA
+- create an MMseqs2 database for that sample
+- search reads against the shared cluster representative database
+- write alignment details with `mmseqs convertalis`
+
+**Output**: Per-sample alignment TSV files  
+**Output location**: `../output/mapping_results/{SAMPLE}_alignments.tsv`  
+**Execution**: SLURM array job over all RNA samples in the tar
+
+### 4. `plot_mapping_results.py`
+
+**Purpose**: Create per-sample plots from the alignment TSV files.  
+**Input**: `../output/mapping_results/*_alignments.tsv`  
+**Output**: PNG plots in `../output/plots/`  
+**Plots generated**:
+
+- similarity threshold vs mapped reads
+- percent identity distribution
+- coverage distribution when coverage can be parsed from the target header
 
 ## Execution Flow
 
+```text
+Master SLURM Script (`map_tx_mmseqs2.slurm`)
+  │
+  ├─→ Stage 1: Prodigal on all 10 assemblies
+  │   └─ Outputs: `../output/mmseqs_clustering/genes/*.genes.faa`
+  │
+  ├─→ Stage 2: Build shared MMseqs2 cluster database
+  │   └─ Outputs: `../output/mmseqs_clustering/shared_db/cluster_rep_db*`
+  │
+  └─→ Stage 3: Map all 28 RNA samples from the tar archive
+      └─ Outputs: `../output/mapping_results/{SAMPLE}_alignments.tsv`
 ```
-Master SLURM Script (map_tx_mmseqs2.slurm)
-  │
-  ├─→ Phase 1: Prodigal (parallel on all samples)
-  │   └─ Outputs: *.genes.faa in output/mmseqs_clustering/genes/
-  │
-  ├─→ Phase 2: Build Clusters (sequential, waits for Phase 1)
-  │   ├─ Concatenate genes
-  │   ├─ Cluster at 90% identity
-  │   └─ Outputs: cluster DB in output/mmseqs_clustering/shared_db/
-  │
-  └─→ Phase 3+4: Map & Stats (parallel array job 0-9, waits for Phase 2)
-      ├─ Map each sample's reads to cluster DB
-      ├─ Calculate similarity distribution
-      └─ Outputs: *.mapping_stats.tsv in output/mapping_results/
-```
-
-## Key Features
-
-- **Modularity**: Each phase is a standalone bash script
-- **Parallelization**: Phase 1 and Phase 3+4 run in parallel; Phase 2 is sequential
-- **SLURM Dependencies**: Master script uses `--dependency=afterok` to chain jobs
-- **Logging**: Each phase logs to separate files for troubleshooting
-- **Cleanup**: Temporary files automatically removed after each sample
-- **Statistics**: Per-sample similarity and mapping metrics extracted for plotting
